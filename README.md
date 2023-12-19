@@ -59,6 +59,7 @@ Optional arguments include
 
  ## docker Setup
  `cd ImageSubnet`
+
  build and start: `docker-compose up`
 
  stop: `docker-compose down`
