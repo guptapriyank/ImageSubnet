@@ -56,3 +56,11 @@ Optional arguments include
  `--device` default: **cuda**, where to run the image model off of
 
  `--axon.port` default: **3000**, port to launch your axon in, this needs to be open to the public
+
+ ## docker Setup
+ `cd ImageSubnet`
+ build and start: `docker-compose up`
+ stop: `docker-compose down`
+ access running docker container: `docker exec -ti app bash`
+ clean system: `docker system prune`
+

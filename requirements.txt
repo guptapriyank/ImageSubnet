@@ -7,7 +7,21 @@ IPython
 scikit-learn
 fabric @ git+https://github.com/sd-fabric/fabric.git
 omegaconf
+fairscale
 image-reward
 clip @ git+https://github.com/openai/CLIP.git
 imagehash
 matplotlib
+#ComfyUI
+torch
+torchsde
+einops
+transformers>=4.25.1
+safetensors>=0.3.0
+aiohttp
+accelerate
+pyyaml
+Pillow
+scipy
+tqdm
+psutil
