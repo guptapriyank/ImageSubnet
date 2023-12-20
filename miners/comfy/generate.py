@@ -95,11 +95,16 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
     return images
 
 
-def get_cloudflare_upload_url(image_byte_stream, uid):
-    account_id = config.cloudflare.account_id
-    api_token = config.cloudflare.api_token
-    if account_id is None or api_token is None:
-        raise Exception("Either cloudflare account_id or cloudflare api_token are not defined")
+def get_cloudflare_upload_url(account_id, api_token, image_byte_stream, uid):
+    """
+    upload an image to Cloudflare using bytes buffer.
+
+    :param account_id: Cloudflare account ID
+    :param api_token: Cloudflare API token
+    :param image_byte_stream: byte steam of image
+    :param uid: name for the image
+    :return: image url and image id
+    """
 
     # URL for Cloudflare's image optimization API
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/images/v1"
@@ -116,9 +121,33 @@ def get_cloudflare_upload_url(image_byte_stream, uid):
     response = requests.post(url, files=files, headers=headers).json()
 
     if response["success"]:
-        return response["result"]["variants"][0]
+        return response["result"]["variants"][0], response["result"]["id"]
     else:
         raise Exception(f'cloudflare upload failed, {response["errors"]}')
+
+
+def delete_cloudflare_image(account_id, api_token, image_id):
+    """
+    Deletes an image from Cloudflare using the Image ID.
+
+    :param account_id: Cloudflare account ID
+    :param image_id: ID of the image to be deleted
+    :param api_token: Cloudflare API token
+    :return: Response from the Cloudflare API success status
+    """
+
+    # URL for deleting an image
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/images/v1/{image_id}"
+
+    # Headers including the authorization token
+    headers = {
+        "Authorization": f"Bearer {api_token}"
+    }
+
+    # Send the DELETE request
+    response = requests.delete(url, headers=headers).json()
+
+    return response["success"]
 
 
 def i2i(synapse: ImageToImage) -> List[Image.Image]:
@@ -149,8 +178,15 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
     byte_stream = io.BytesIO()
     pil_img.save(byte_stream, format="png")
 
+    # cloudflare config
+    account_id = config.cloudflare.account_id
+    api_token = config.cloudflare.api_token
+
+    if account_id is None or api_token is None:
+        raise Exception("Either cloudflare account_id or cloudflare api_token are not defined")
+
     # get cloudflare uploaded image url
-    init_image_url = get_cloudflare_upload_url(byte_stream, uid)
+    init_image_url, image_id = get_cloudflare_upload_url(account_id, api_token, byte_stream, uid)
 
     api_key = config.stablediffusion.apikey
 
@@ -185,7 +221,8 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
         raise Exception(
             f"An error occurred while calling text to image stablediffusionapi, message: {json_response['message']}")
 
-    # TODO cleanup of uploaded images to cloudflare
+    # cleanup of uploaded images to cloudflare
+    delete_cloudflare_image(account_id,api_token,image_id)
 
     images = []
     for url in image_urls:
