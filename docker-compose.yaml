@@ -9,7 +9,5 @@ services:
       - 3000:3000
     volumes:
       - ./:/app
-    runtime: nvidia  # Specify the GPU runtime
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all  # Specify which GPUs are accessible inside the container
+    command: bash run.sh
 
