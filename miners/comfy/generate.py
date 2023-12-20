@@ -16,28 +16,28 @@
 # THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
-
-from protocol import *
-import random
-from PIL import Image
 import io
-from typing import List
 import json
-from config import config
-import websocket
-import uuid
+import random
 import urllib
+import uuid
+from typing import List
+
 import imagehash
-import bittensor as bt
-import torchvision.transforms as transforms
-import os
 import requests
+import torchvision.transforms as transforms
+from PIL import Image
+
+from config import config
+from protocol import *
+
 # this object is downloaded from comfyui "Save (API Format)", must enable dev mode
 # open prompts/text_to_image.txt
 print(config)
 server_address = config.comfyui.address + ":" + str(config.comfyui.port)
 client_id = str(uuid.uuid4())
 print(server_address)
+
 
 # returns list of images
 def t2i(synapse: TextToImage) -> List[Image.Image]:
@@ -52,51 +52,74 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
     else:
         seed = synapse.seed
 
-    # If making a custom miner, you can dynamicly change the prompt file
-    # allow you to run different workflows on the fly
-    # by default, we just use the base comfyui workflow
-    api_file = 'text_to_image'
+    api_key = config.stablediffusion.apikey
 
-    # get directory of this file
-    # __file__ is the current file
-    #  is the directory of the current file
+    if api_key is None:
+        raise Exception("stablediffusionapi.apikey can not be null")
 
-    with open(f'{os.path.dirname(__file__)}/workflows/{api_file}.txt', 'r') as f:
-        TEXT_TO_IMAGE_API = f.read()
-    
-    # switch based on api_file
-    if api_file == 'text_to_image':
-        api = json.loads(TEXT_TO_IMAGE_API)
-        # api["4"]["inputs"]["ckpt_name"] = "brixlAMustInYour_v20Banu.safetensors" # Used to over ride and set model name
-        api["6"]["inputs"]["text"] = prompt
-        api["7"]["inputs"]["text"] = negative_prompt
-        api["3"]["inputs"]["seed"] = seed
-        api["3"]["inputs"]["steps"] = 25
-        api["5"]["inputs"]["batch_size"] = num_images_per_prompt
-        api["5"]["inputs"]["width"] = width
-        api["5"]["inputs"]["height"] = height
+    api_url = config.stablediffusion.t2i_url
 
+    api_payload = {
+        'key': api_key,
+        'prompt': prompt,
+        'negative_prompt': negative_prompt,
+        'seed': seed,
+        'num_inference_steps': '20',
+        "samples": num_images_per_prompt,
+        'width': width,
+        'height': height
+    }
+
+    headers = {
+        'Content-Type': 'application/json'
+    }
+
+    json_response = requests.request("POST", api_url, headers=headers, data=api_payload).json()
+
+    if json_response['status'] == 'success':
+        image_urls = json_response['output']
     else:
-        # custom miners could define other api files using the same format
-        raise NotImplementedError
-    
-    ws = websocket.WebSocket()
-    ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
-    response = get_images(ws, api)
-    ws.close()
+        raise Exception(
+            f"An error occurred while calling text to image stablediffusionapi, message: {json_response['message']}")
 
     images = []
-
-    for node_id in response:
-        for image_data in response[node_id]:
-            image = Image.open(io.BytesIO(image_data))
-    
+    for url in image_urls:
+        try:
+            response = requests.get(url)
+            image = Image.open(io.BytesIO(response.content))
             if image.size[0] != width or image.size[1] != height:
                 image = image.resize((width, height), Image.ANTIALIAS)
-
             images.append(image)
-
+        except Exception as e:
+            raise Exception(f"An error occurred while loading image: {e}")
     return images
+
+
+def get_cloudflare_upload_url(image_byte_stream, uid):
+    account_id = config.cloudflare.account_id
+    api_token = config.cloudflare.api_token
+    if account_id is None or api_token is None:
+        raise Exception("Either cloudflare account_id or cloudflare api_token are not defined")
+
+    # URL for Cloudflare's image optimization API
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/images/v1"
+
+    # Headers including the authorization token
+    headers = {
+        "Authorization": f"Bearer {api_token}"
+    }
+
+    # Prepare the image data as multipart/form-data
+    files = {'file': (f'{uid}.png', image_byte_stream, 'image/png')}
+
+    # Send the POST request
+    response = requests.post(url, files=files, headers=headers).json()
+
+    if response["success"]:
+        return response["result"]["variants"][0]
+    else:
+        raise Exception(f'cloudflare upload failed, {response["errors"]}')
+
 
 def i2i(synapse: ImageToImage) -> List[Image.Image]:
     print("inside image 2 image")
@@ -112,100 +135,75 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
         seed = synapse.seed
     # right now, image is bt.Tensor, we need to deserialize it and convert to PIL image
     image = bt.Tensor.deserialize(synapse.image)
-    pil_img =  transforms.ToPILImage()( image )
-    
+    pil_img = transforms.ToPILImage()(image)
+
     # generate hash for image using dhash
-    hash = imagehash.dhash(pil_img)
-    hash = str(hash)
+    image_hash = imagehash.dhash(pil_img)
+    image_hash = str(image_hash)
 
     # generate uid from hash
-    uid = uuid.uuid5(uuid.NAMESPACE_DNS, hash)
+    uid = uuid.uuid5(uuid.NAMESPACE_DNS, image_hash)
     uid = str(uid)
 
-    # upload image to comfyui
-    # save image to tmp file
-    png_name = f'/tmp/{uid}.png'
-    pil_img.save(png_name)
+    # Save the image to an in-memory bytes buffer
+    byte_stream = io.BytesIO()
+    pil_img.save(byte_stream, format="png")
 
-    # Define the file to upload
-    files = {
-        'image': (f'{uid}.png', open(png_name, 'rb'), 'image/png')
+    # get cloudflare uploaded image url
+    init_image_url = get_cloudflare_upload_url(byte_stream, uid)
+
+    api_key = config.stablediffusion.apikey
+
+    if api_key is None:
+        raise Exception("stablediffusionapi.apikey can not be null")
+
+    api_url = config.stablediffusion.i2i_url
+
+    # denoise = {"low": 0.8, "medium": 0.5, "high": 0.15}.get(synapse.similarity, 0.0)
+
+    api_payload = {
+        'key': api_key,
+        'prompt': prompt,
+        'negative_prompt': negative_prompt,
+        "init_image": init_image_url,
+        'seed': seed,
+        'num_inference_steps': '25',
+        "samples": num_images_per_prompt,
+        'width': width,
+        'height': height
     }
 
-    # Define any additional data fields if needed
-    data = {
-        'name': f'{uid}.png',
-        'subfolder': "",
-        'type': 'input'
+    headers = {
+        'Content-Type': 'application/json'
     }
 
-    # Send the POST request with the file and data
-    r = requests.post(f'http://{config.comfyui.address}:{config.comfyui.port}/upload/image', files=files, data=data)
+    json_response = requests.request("POST", api_url, headers=headers, data=api_payload).json()
 
-
-    # delete tmp file
-    os.remove(png_name)
-
-    # the above errors, a bytes-like object is required, not 'set'
-    # the reason is because the file is not being read correctly
-    # the file is being read as a set, not a buffered reader
-    # the buffered reader is needed to read the file as bytes
-
-
-
-    if r.status_code != 200:
-        raise Exception("Error uploading image to comfyui")
-    
-    api_file = 'image_to_image'
-    
-    with open(f'{os.path.dirname(__file__)}/workflows/{api_file}.txt', 'r') as f:
-        IMAGE_TO_IMAGE_API = f.read()
-    
-    # switch based on api_file
-    if api_file == 'image_to_image':
-        api = json.loads(IMAGE_TO_IMAGE_API)
-        api["6"]["inputs"]["text"] = prompt
-        api["7"]["inputs"]["text"] = negative_prompt
-        api["3"]["inputs"]["seed"] = seed
-
-        denoise = {"low": 0.8, "medium": 0.5, "high": 0.15}.get(synapse.similarity, 0.0)
-
-        api["3"]["inputs"]["denoise"] = denoise
-        api["3"]["inputs"]["steps"] = 25
-        api["10"]["inputs"]["image"] = "{}.png".format(uid)
-        api["12"]["inputs"]["amount"] = int(num_images_per_prompt)
-
-
+    if json_response['status'] == 'success':
+        image_urls = json_response['output']
     else:
-        # custom miners could define other api files using the same format
-        raise NotImplementedError
-    
-    ws = websocket.WebSocket()
-    ws.connect("ws://{}/ws?clientId={}".format(server_address, client_id))
-    response = get_images(ws, api)
-    ws.close()
+        raise Exception(
+            f"An error occurred while calling text to image stablediffusionapi, message: {json_response['message']}")
+
+    # TODO cleanup of uploaded images to cloudflare
 
     images = []
-
-    for node_id in response:
-        for image_data in response[node_id]:
-            image = Image.open(io.BytesIO(image_data))
-    
-            # if image.size[0] != width or image.size[1] != height:
-            #     image = image.resize((width, height), Image.ANTIALIAS)
-
+    for url in image_urls:
+        try:
+            response = requests.get(url)
+            image = Image.open(io.BytesIO(response.content))
             images.append(image)
-
-
+        except Exception as e:
+            raise Exception(f"An error occurred while loading image: {e}")
     return images
-    
 
 
 def queue_prompt(prompt):
     p = {"prompt": prompt, "client_id": client_id}
     data = json.dumps(p).encode('utf-8')
-    req =  urllib.request.Request("http://{}/prompt".format(server_address), data=data)
+    req = urllib.request.Request("http://{}/prompt".format(server_address), data=data)
     return json.loads(urllib.request.urlopen(req).read())
+
 
 def get_image(filename, subfolder, folder_type):
     data = {"filename": filename, "subfolder": subfolder, "type": folder_type}
@@ -213,9 +211,11 @@ def get_image(filename, subfolder, folder_type):
     with urllib.request.urlopen("http://{}/view?{}".format(server_address, url_values)) as response:
         return response.read()
 
+
 def get_history(prompt_id):
     with urllib.request.urlopen("http://{}/history/{}".format(server_address, prompt_id)) as response:
         return json.loads(response.read())
+
 
 def get_images(ws, prompt):
     prompt_id = queue_prompt(prompt)['prompt_id']
@@ -227,9 +227,9 @@ def get_images(ws, prompt):
             if message['type'] == 'executing':
                 data = message['data']
                 if data['node'] is None and data['prompt_id'] == prompt_id:
-                    break #Execution is done
+                    break  # Execution is done
         else:
-            continue #previews are binary data
+            continue  # previews are binary data
 
     history = get_history(prompt_id)[prompt_id]
     for o in history['outputs']:
