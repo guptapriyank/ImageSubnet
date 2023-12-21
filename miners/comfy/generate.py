@@ -52,6 +52,10 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
     else:
         seed = synapse.seed
 
+    bt.logging.trace(f"Calling text to image. prompt: {prompt}, "
+                     f"negative_prompt: {negative_prompt}, seed: {seed}, samples: {num_images_per_prompt}, "
+                     f"width: {width}, height: {height}")
+
     api_key = config.stablediffusion.apikey
 
     if api_key is None:
@@ -80,7 +84,10 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
         image_urls = json_response['output']
     else:
         raise Exception(
-            f"An error occurred while calling text to image stablediffusionapi, message: {json_response['message']}")
+            f"An error occurred while calling text to image stablediffusionapi, prompt: {prompt}, "
+            f"negative_prompt: {negative_prompt}, seed: {seed}, samples: {num_images_per_prompt}, "
+            f"width: {width}, height: {height}, response error message: {json_response['message']}, "
+            f"tip: {json_response['tip']} ")
 
     images = []
     for url in image_urls:
@@ -162,6 +169,11 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
         seed = random.randint(0, 2 ** 32 - 1)
     else:
         seed = synapse.seed
+
+    bt.logging.trace(f"Calling image to image. prompt: {prompt}, "
+                     f"negative_prompt: {negative_prompt}, seed: {seed}, samples: {num_images_per_prompt}, "
+                     f"width: {width}, height: {height}")
+
     # right now, image is bt.Tensor, we need to deserialize it and convert to PIL image
     image = bt.Tensor.deserialize(synapse.image)
     pil_img = transforms.ToPILImage()(image)
@@ -219,10 +231,13 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
         image_urls = json_response['output']
     else:
         raise Exception(
-            f"An error occurred while calling text to image stablediffusionapi, message: {json_response['message']}")
+            f"An error occurred while calling image to image stablediffusionapi, prompt: {prompt}, "
+            f"negative_prompt: {negative_prompt}, init_image: {init_image_url}, seed: {seed}, "
+            f"samples: {num_images_per_prompt}, width: {width}, height: {height}, "
+            f"response error message: {json_response['message']}, tip: {json_response['tip']} ")
 
     # cleanup of uploaded images to cloudflare
-    delete_cloudflare_image(account_id,api_token,image_id)
+    delete_cloudflare_image(account_id, api_token, image_id)
 
     images = []
     for url in image_urls:
