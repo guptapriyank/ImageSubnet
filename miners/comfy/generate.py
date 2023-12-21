@@ -74,6 +74,8 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
         'height': height
     }
 
+    api_payload = {k: v for k, v in api_payload.items() if v}
+
     headers = {
         'Content-Type': 'application/json'
     }
@@ -220,6 +222,8 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
         'width': width,
         'height': height
     }
+
+    api_payload = {k: v for k, v in api_payload.items() if v}
 
     headers = {
         'Content-Type': 'application/json'
