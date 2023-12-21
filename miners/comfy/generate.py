@@ -76,6 +76,9 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
 
     api_payload = {k: v for k, v in api_payload.items() if v}
 
+    # TODO remove after debugging
+    bt.logging.trace(f"API Payload: {api_payload}, api_url: {api_url}")
+
     headers = {
         'Content-Type': 'application/json'
     }
