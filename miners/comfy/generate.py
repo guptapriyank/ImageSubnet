@@ -82,14 +82,14 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
 
     json_response = requests.request("POST", api_url, headers=headers, data=json.dumps(api_payload)).json()
 
-    if json_response['status'] == 'success':
-        image_urls = json_response['output']
+    if json_response.get('status') == 'success':
+        image_urls = json_response.get('output')
     else:
         raise Exception(
             f"An error occurred while calling text to image stablediffusionapi, prompt: {prompt}, "
             f"negative_prompt: {negative_prompt}, seed: {seed}, samples: {num_images_per_prompt}, "
-            f"width: {width}, height: {height}, response error message: {json_response['message']}, "
-            f"tip: {json_response['tip']} ")
+            f"width: {width}, height: {height}, response error message: {json_response.get('message')} "
+            f"{json_response.get('messege')}, tip: {json_response.get('tip')} ")
 
     images = []
     for url in image_urls:
@@ -231,14 +231,14 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
 
     json_response = requests.request("POST", api_url, headers=headers, data=json.dumps(api_payload)).json()
 
-    if json_response['status'] == 'success':
-        image_urls = json_response['output']
+    if json_response.get('status') == 'success':
+        image_urls = json_response.get('output')
     else:
         raise Exception(
             f"An error occurred while calling image to image stablediffusionapi, prompt: {prompt}, "
             f"negative_prompt: {negative_prompt}, init_image: {init_image_url}, seed: {seed}, "
             f"samples: {num_images_per_prompt}, width: {width}, height: {height}, "
-            f"response error message: {json_response['message']}, tip: {json_response['tip']} ")
+            f"response error message: {json_response.get('message')} {json_response.get('messege')}, tip: {json_response.get('tip')} ")
 
     # cleanup of uploaded images to cloudflare
     delete_cloudflare_image(account_id, api_token, image_id)
