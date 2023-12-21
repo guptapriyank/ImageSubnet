@@ -22,11 +22,11 @@ parser.add_argument('--wallet.name', type=str, default='default')
 parser.add_argument('--wallet.path', type=str, default='~/.bittensor/wallets')
 parser.add_argument('--netuid', type=int, default=5)
 parser.add_argument('--axon.port', type=int, default=3000)
-parser.add_argument('--stablediffusion.apikey', type=str, default='None') # api Key from https://stablediffusionapi.com/
+parser.add_argument('--stablediffusion.apikey', type=str, default=None) # api Key from https://stablediffusionapi.com/
 parser.add_argument('--stablediffusion.t2i_url', type=str, default='https://stablediffusionapi.com/api/v3/text2img') # url for text to image api call https://stablediffusionapi.com/
 parser.add_argument('--stablediffusion.i2i_url', type=str, default='https://stablediffusionapi.com/api/v3/img2img') # url for image to image api call https://stablediffusionapi.com/
-parser.add_argument('--cloudflare.account_id', type=str, default='None') # cloudflare account_id for image upload
-parser.add_argument('--cloudflare.api_token', type=str, default='None') # cloudflare api_token for image upload
+parser.add_argument('--cloudflare.account_id', type=str, default=None) # cloudflare account_id for image upload
+parser.add_argument('--cloudflare.api_token', type=str, default=None) # cloudflare api_token for image upload
 
 config = bt.config( parser )
 
