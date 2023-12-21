@@ -76,14 +76,11 @@ def t2i(synapse: TextToImage) -> List[Image.Image]:
 
     api_payload = {k: v for k, v in api_payload.items() if v}
 
-    # TODO remove after debugging
-    bt.logging.trace(f"API Payload: {api_payload}, api_url: {api_url}")
-
     headers = {
         'Content-Type': 'application/json'
     }
 
-    json_response = requests.request("POST", api_url, headers=headers, data=api_payload).json()
+    json_response = requests.request("POST", api_url, headers=headers, data=json.dumps(api_payload)).json()
 
     if json_response['status'] == 'success':
         image_urls = json_response['output']
@@ -232,7 +229,7 @@ def i2i(synapse: ImageToImage) -> List[Image.Image]:
         'Content-Type': 'application/json'
     }
 
-    json_response = requests.request("POST", api_url, headers=headers, data=api_payload).json()
+    json_response = requests.request("POST", api_url, headers=headers, data=json.dumps(api_payload)).json()
 
     if json_response['status'] == 'success':
         image_urls = json_response['output']
