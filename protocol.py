@@ -1,9 +1,8 @@
-
-
-import typing
-import pydantic
-import bittensor as bt
 from typing import Literal
+
+import bittensor as bt
+import pydantic
+
 
 def validate_synapse( synapse, enforce_batch_size = False ) -> (bool, str):
     # check tensor type first
@@ -31,11 +30,11 @@ class TextToImage( bt.Synapse ):
 
 class ImageToImage( TextToImage ):
     # Width x height will get overwritten by image size
-    image: bt.Tensor = pydantic.Field( ... , allow_mutation = False) 
+    image: bt.Tensor = None
 
     # Miners must choose how to define similarity themselves based on their model
     # by default, the strength values are 0.3, 0.7, 0.9
-    similarity: Literal["low", "medium", "high"] = pydantic.Field( "medium" , allow_mutation = False) 
+    similarity: Literal["low", "medium", "high"] = pydantic.Field( "medium" , allow_mutation = False)
 
     required_hash_fields: list[str] = pydantic.Field(  ["text", "negative_prompt", "height", "width", "num_images_per_prompt", "seed", "nsfw_allowed", "image", "similarity"] , allow_mutation = False)
 
@@ -58,5 +57,5 @@ class MinerSettings( bt.Synapse ):
 
 
 # TO BE IMPLEMENTED
-class Upscale ( TextToImage ): 
+class Upscale ( TextToImage ):
     scale: float = pydantic.Field( 2.0 , allow_mutation = False)

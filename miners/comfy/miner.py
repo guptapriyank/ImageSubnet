@@ -17,12 +17,15 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+import os
 # Confirm minimum python version
 import sys
-import os 
 import time
 
 # Get the current script's directory (assuming miner.py is in the miners folder)
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Append the project's root directory to sys.path
@@ -38,12 +41,13 @@ if sys.version_info < required_version:
 import torch
 import bittensor as bt
 from time import sleep
-from typing import Tuple, Union
+from typing import Tuple
 
 bt.debug()
 bt.trace()
 
-from utils import check_for_updates, __version__
+from utils import check_for_updates
+
 check_for_updates()
 
 from config import config
@@ -101,7 +105,7 @@ def GenerateImage(synapse, generator):
             height = config.miner.height.min
     elif config.miner.height.max is not None and height > config.miner.height.max:
         raise ValueError(f"height ({height}) must be less than or equal to height.max ({config.miner.height.max})")
-    
+
     width = synapse.width
     if config.miner.width.min is not None and width < config.miner.width.min:
         if synapse.fixed_resolution:
@@ -110,7 +114,7 @@ def GenerateImage(synapse, generator):
             width = config.miner.width.min
     elif config.miner.width.max is not None and width > config.miner.width.max:
         raise ValueError(f"width ({width}) must be less than or equal to width.max ({config.miner.width.max})")
-    
+
     # if height and widht are different from synapse, ensure that the aspect ratio is the same to the nearest divisible by 8
     if height != synapse.height or width != synapse.width:
         # determine the aspect ratio of the synapse
@@ -141,7 +145,7 @@ def GenerateImage(synapse, generator):
     total_pixels = height * width * synapse.num_images_per_prompt
     if config.miner.max_pixels is not None and total_pixels > config.miner.max_pixels:
         raise ValueError(f"total pixels ({total_pixels}) must be less than or equal to max_pixels ({config.miner.max_pixels}), reduce image size, or num_images_per_prompt")
-    
+
     bt.logging.trace("Attempting to generate image")
     try:
         # If we are doing image to image, we need to use a different pipeline.
@@ -153,9 +157,9 @@ def GenerateImage(synapse, generator):
 
     bt.logging.trace("Image generated")
     print(output_images)
-        
-   
-    
+
+
+
     return Images(output_images)
 
 usage_history = {} # keys will be uid, value will be list with timestamp and output size requested (in pixels)
@@ -179,12 +183,12 @@ def base_blacklist(synapse: TextToImage) -> Tuple[bool, str]:
     # if uid is None, then the hotkey of the synapse is not in the meta.axons array
     if uid is None:
         return True, "hotkey of synapse is not in meta.axons array"
-    
+
     # check the stake
     tao = meta.neurons[uid].stake.tao
     if tao < config.miner.min_validator_stake:
         return True, f"stake is less than min_validator_stake ({config.miner.min_validator_stake})"
-    
+
     # Ensure that the ip of the synapse call matches that of the axon for the validator
     if axon.ip != synapse.dendrite.ip:
         # if 0.0.0.0
@@ -208,10 +212,10 @@ def base_priority(synapse: TextToImage) -> float:
 
     # get percentage of stake for each neuron and add to vali_neuron tuple to be (uid, neuron, percentage)
     vali_neurons = [(uid, neuron, neuron.stake.tao / total_stake) for uid, neuron in vali_neurons]
-    
+
     # Get pixel output request of synapse
     total_pixels = synapse.height * synapse.width * synapse.num_images_per_prompt
-    
+
     # check if the uid is in the usage_history
     if synapse.dendrite.hotkey in usage_history:
         # add the total pixels to the list of calls by that uid
@@ -236,7 +240,7 @@ def base_priority(synapse: TextToImage) -> float:
     # normalize the percentages
     normalized_vali_neurons = [(uid, neuron, percentage / sum([neuron[2] for neuron in normalized_vali_neurons])) for uid, neuron, percentage in normalized_vali_neurons]
 
-    
+
     # get the total pixels requested by all uids in the last 5 minutes
     total_pixels_requested = sum([sum([call[1] for call in calls]) for calls in usage_history.values()])
 
@@ -247,7 +251,7 @@ def base_priority(synapse: TextToImage) -> float:
     if synapse.dendrite.hotkey in pixels_requested_percentages:
         if pixels_requested_percentages[synapse.dendrite.hotkey] > normalized_vali_neurons[synapse.dendrite.hotkey][2]:
             return 0
-    
+
     # else return 100 + sqrt of stake
     return 100 + (meta.neurons[uid].stake.tao ** 0.5)
 
@@ -306,8 +310,8 @@ async def forward_t2i( synapse: TextToImage ) -> TextToImage:
     for call in time_to_generate_history:
         if call[0] < time.time() - 900:
             time_to_generate_history.pop(0)
-    
-    
+
+
     if torch.rand(1) < 0.1 and len(time_to_generate_history) > 0:
         # log out average time to generate a 512x512 image and 1024x1024 image
         time_512 = get_estimated_time_to_generate_image(512,512)
@@ -416,11 +420,17 @@ def priority_settings( synapse: MinerSettings ) -> float:
 
 def verify_settings( synapse: MinerSettings ) -> None:
     pass
-
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        bt.logging.trace(f"Received HTTP request: {request.url.path}")
+        # body = await request.body()
+        # bt.logging.trace(f"Request Body: {await request.json()}")
+        response = await call_next(request)
+        return response
 
 wallet = bt.wallet( config=config )
 axon = bt.axon( config=config, wallet=wallet, ip="127.0.0.1", external_ip=bt.utils.networking.get_external_ip()).attach( forward_t2i, blacklist_t2i, priority_t2i, verify_t2i ).attach( forward_i2i, blacklist_i2i, priority_i2i, verify_i2i ).attach( forward_settings, blacklist_settings, priority_settings, verify_settings ).start()
-
+axon.app.add_middleware(RequestLoggingMiddleware)
 # serve axon
 subtensor.serve_axon( axon=axon, netuid=config.netuid )
 
